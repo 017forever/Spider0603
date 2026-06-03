@@ -36,109 +36,182 @@ def index():
     R = "<h1>歡迎進入動畫推薦網站</h1>"
     R += "<a href='/crawl'>更新動畫資料</a><br><hr>"
     R += "<a href='/all'>查看全部動畫</a><br><hr>"
+    R += "<a href='/hot'>近期熱播排行</a><br><hr>"
+    R += "<a href='/new'>本季新番</a><br><hr>"
+    R += "<a href='/newArrive'>新上架</a><br><hr>"
     R += "<a href='/random'>隨機推薦動畫</a><br><hr>"
     R += "<a href='/search'>查詢動漫</a><br><hr>"
-    R += "<a href='/webhook'>webhook測試</a><br><hr>"
     return R
 
 # ======================
-# 爬動畫瘋並存 Firebase
+# 爬蟲主函式
+# ======================
+
+def crawl_anime():
+    url = "https://ani.gamer.com.tw/"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(url, headers=headers)
+    response.encoding = "utf-8"
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    anime_list = []
+
+    # --- 近期熱播 ---
+    hot_block = soup.select("#blockHotAnime a.theme-list-main")
+    for card in hot_block:
+        name_tag = card.select_one(".theme-name")
+        episode_tag = card.select_one(".theme-number")
+        if not name_tag:
+            continue
+        name = name_tag.text.strip()
+        episode = episode_tag.text.strip().replace("共", "").replace("集", "").strip() if episode_tag else "?"
+        href = card.get("href", "")
+        link = "https://ani.gamer.com.tw/" + href
+        anime_list.append({"name": name, "episode": episode, "link": link, "category": "熱播"})
+
+    # --- 新上架 ---
+    new_arrive_block = soup.select("#blockAnimeNewArrive a.theme-list-main")
+    for card in new_arrive_block:
+        name_tag = card.select_one(".theme-name")
+        episode_tag = card.select_one(".theme-number")
+        date_tag = card.select_one(".theme-time")
+        if not name_tag:
+            continue
+        name = name_tag.text.strip()
+        episode = episode_tag.text.strip().replace("共", "").replace("集", "").strip() if episode_tag else "?"
+        date = date_tag.text.strip().replace("上架日：", "") if date_tag else "?"
+        href = card.get("href", "")
+        link = "https://ani.gamer.com.tw/" + href
+        anime_list.append({"name": name, "episode": episode, "link": link, "category": "新上架", "date": date})
+
+    # --- 本季新番 ---
+    new_season_block = soup.select("div.newanime-date-area a.anime-card-block")
+    for card in new_season_block:
+        name_tag = card.select_one(".anime-name")
+        episode_tag = card.select_one(".anime-episode p")
+        if not name_tag:
+            continue
+        name = name_tag.text.strip()
+        episode = episode_tag.text.strip() if episode_tag else "?"
+        href = card.get("href", "")
+        link = "https://ani.gamer.com.tw/" + href
+        anime_list.append({"name": name, "episode": episode, "link": link, "category": "新番"})
+
+    return anime_list
+
+# ======================
+# 更新資料庫
 # ======================
 
 @app.route("/crawl")
 def crawl():
-    url = "https://ani.gamer.com.tw/"
+    anime_list = crawl_anime()
 
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
-
-    response = requests.get(url, headers=headers)
-    response.encoding = "utf-8"
-
-    soup = BeautifulSoup(response.text, "html.parser")
-
-    cards = soup.select("a.theme-list-main")
-
-    anime_list = []
-
-    for card in cards:
-        name = card.select_one(".theme-name").text.strip()
-
-        year = card.select_one(".theme-time").text.strip()
-        year = year.replace("年份：", "")
-
-        episode = card.select_one(".theme-number").text.strip()
-        episode = episode.replace("共", "")
-        episode = episode.replace("集", "")
-
-        link = "https://ani.gamer.com.tw/" + card.get("href")
-
-        anime = {
-            "name": name,
-            "year": year,
-            "episode": episode,
-            "link": link
-        }
-
-        anime_list.append(anime)
-
-    # 去除重複動畫
-    anime_dict = {}
-
-    for anime in anime_list:
-        anime_dict[anime["name"]] = anime
-
-    # 先清空舊資料
+    # 清空舊資料
     old_docs = db.collection("anime").stream()
+    delete_count = sum(1 for doc in old_docs if doc.reference.delete() or True)
 
-    delete_count = 0
-
-    for doc in old_docs:
-        doc.reference.delete()
-        delete_count += 1
-
-    # 寫入新資料
+    # 寫入新資料（去重）
+    anime_dict = {a["name"]: a for a in anime_list}
     for name, anime in anime_dict.items():
-        doc_id = name
-        doc_id = doc_id.replace("/", "_")
-        doc_id = doc_id.replace("\\", "_")
-
+        doc_id = name.replace("/", "_").replace("\\", "_")
         db.collection("anime").document(doc_id).set(anime)
 
     R = "<h2>動畫資料更新完成</h2>"
-    R += f"原本抓到：{len(anime_list)} 筆<br>"
-    R += f"去除重複後：{len(anime_dict)} 筆<br>"
-    R += f"刪除舊資料：{delete_count} 筆<br>"
-    R += f"成功寫入：{len(anime_dict)} 筆<br>"
+    R += f"共抓到：{len(anime_list)} 筆<br>"
+    R += f"去重後：{len(anime_dict)} 筆<br>"
     R += "<br><a href='/'>回首頁</a>"
-
     return R
 
 # ======================
-# 查看全部動畫
+# 查看全部
 # ======================
 
 @app.route("/all")
 def all_anime():
     docs = db.collection("anime").stream()
-
     R = "<h2>全部動畫資料</h2>"
-
     count = 0
-
     for doc in docs:
         anime = doc.to_dict()
         count += 1
-
-        R += f"<b>{count}. {anime['name']}</b><br>"
-        R += f"年份：{anime['year']}<br>"
+        R += f"<b>{count}. [{anime.get('category','?')}] {anime['name']}</b><br>"
         R += f"集數：{anime['episode']}<br>"
-        R += f"<a href='{anime['link']}' target='_blank'>觀看連結</a><br>"
-        R += "<hr>"
-
+        R += f"<a href='{anime['link']}' target='_blank'>觀看連結</a><br><hr>"
     R += "<br><a href='/'>回首頁</a>"
+    return R
 
+# ======================
+# 近期熱播
+# ======================
+
+@app.route("/hot")
+def hot_anime():
+    docs = db.collection("anime").where("category", "==", "熱播").stream()
+    R = "<h2>近期熱播</h2>"
+    count = 0
+    for doc in docs:
+        anime = doc.to_dict()
+        count += 1
+        R += f"<b>{count}. {anime['name']}</b><br>"
+        R += f"集數：{anime['episode']}<br>"
+        R += f"<a href='{anime['link']}' target='_blank'>觀看連結</a><br><hr>"
+    R += "<br><a href='/'>回首頁</a>"
+    return R
+
+# ======================
+# 本季新番
+# ======================
+
+@app.route("/new")
+def new_anime():
+    docs = db.collection("anime").where("category", "==", "新番").stream()
+    R = "<h2>本季新番</h2>"
+    count = 0
+    for doc in docs:
+        anime = doc.to_dict()
+        count += 1
+        R += f"<b>{count}. {anime['name']}</b><br>"
+        R += f"集數：{anime['episode']}<br>"
+        R += f"<a href='{anime['link']}' target='_blank'>觀看連結</a><br><hr>"
+    R += "<br><a href='/'>回首頁</a>"
+    return R
+
+# ======================
+# 新上架
+# ======================
+
+@app.route("/newArrive")
+def new_arrive():
+    docs = db.collection("anime").where("category", "==", "新上架").stream()
+    R = "<h2>新上架</h2>"
+    count = 0
+    for doc in docs:
+        anime = doc.to_dict()
+        count += 1
+        R += f"<b>{count}. {anime['name']}</b><br>"
+        R += f"集數：{anime['episode']}<br>"
+        R += f"上架日：{anime.get('date','?')}<br>"
+        R += f"<a href='{anime['link']}' target='_blank'>觀看連結</a><br><hr>"
+    R += "<br><a href='/'>回首頁</a>"
+    return R
+
+# ======================
+# 隨機推薦
+# ======================
+
+@app.route("/random")
+def random_anime():
+    docs = db.collection("anime").stream()
+    anime_list = [doc.to_dict() for doc in docs]
+    if not anime_list:
+        return "目前沒有資料，請先 <a href='/crawl'>更新動畫資料</a>"
+    anime = random.choice(anime_list)
+    R = "<h2>隨機推薦動畫</h2>"
+    R += f"<b>[{anime.get('category','?')}] {anime['name']}</b><br>"
+    R += f"集數：{anime['episode']}<br>"
+    R += f"<a href='{anime['link']}' target='_blank'>觀看連結</a><br>"
+    R += "<br><a href='/'>回首頁</a>"
     return R
 
 # ======================
@@ -147,88 +220,44 @@ def all_anime():
 
 @app.route("/search")
 def search():
-
     keyword = request.args.get("keyword", "")
-
     docs = db.collection("anime").stream()
-
-    results = []
-
-    for doc in docs:
-
-        anime = doc.to_dict()
-
-        if keyword in anime["name"]:
-            results.append(anime)
-
-    return render_template(
-        "search.html",
-        keyword=keyword,
-        results=results
-    )
+    results = [doc.to_dict() for doc in docs if keyword in doc.to_dict().get("name", "")]
+    return render_template("search.html", keyword=keyword, results=results)
 
 # ======================
-# 隨機推薦動畫
-# ======================
-
-@app.route("/random")
-def random_anime():
-    docs = db.collection("anime").stream()
-
-    anime_list = []
-
-    for doc in docs:
-        anime_list.append(doc.to_dict())
-
-    if len(anime_list) == 0:
-        return "目前沒有動畫資料，請先更新資料：<a href='/crawl'>更新動畫資料</a>"
-
-    anime = random.choice(anime_list)
-
-    R = "<h2>今日隨機推薦動畫</h2>"
-    R += f"<b>{anime['name']}</b><br>"
-    R += f"年份：{anime['year']}<br>"
-    R += f"集數：{anime['episode']}<br>"
-    R += f"<a href='{anime['link']}' target='_blank'>觀看連結</a><br>"
-    R += "<br><a href='/'>回首頁</a>"
-
-    return R
-
-# ======================
-# 給 Dialogflow / LINE 用的 JSON API
+# API（給 LINE Bot 用）
 # ======================
 
 @app.route("/api/search")
 def api_search():
     keyword = request.args.get("keyword", "")
-
     docs = db.collection("anime").stream()
-
-    results = []
-
-    for doc in docs:
-        anime = doc.to_dict()
-
-        if keyword in anime["name"]:
-            results.append(anime)
-
+    results = [doc.to_dict() for doc in docs if keyword in doc.to_dict().get("name", "")]
     return jsonify(results)
 
 @app.route("/api/random")
 def api_random():
     docs = db.collection("anime").stream()
-
-    anime_list = []
-
-    for doc in docs:
-        anime_list.append(doc.to_dict())
-
-    if len(anime_list) == 0:
+    anime_list = [doc.to_dict() for doc in docs]
+    if not anime_list:
         return jsonify({"message": "目前沒有動畫資料"})
+    return jsonify(random.choice(anime_list))
 
-    anime = random.choice(anime_list)
+@app.route("/api/hot")
+def api_hot():
+    docs = db.collection("anime").where("category", "==", "熱播").stream()
+    return jsonify([doc.to_dict() for doc in docs])
 
-    return jsonify(anime)
+@app.route("/api/new")
+def api_new():
+    docs = db.collection("anime").where("category", "==", "新番").stream()
+    return jsonify([doc.to_dict() for doc in docs])
+
+@app.route("/api/newArrive")
+def api_new_arrive():
+    docs = db.collection("anime").where("category", "==", "新上架").stream()
+    return jsonify([doc.to_dict() for doc in docs])
 
 # ======================
 # Dialogflow Webhook
@@ -237,64 +266,75 @@ def api_random():
 @app.route("/webhook", methods=["POST"])
 def webhook():
     req = request.get_json(force=True)
-
     action = req["queryResult"].get("action", "")
-
     result = ""
 
-    # 查詢動畫
     if action == "anime.search":
         keyword = req["queryResult"].get("queryText", "")
-
-        keyword = keyword.replace("查詢", "")
-        keyword = keyword.replace("搜尋", "")
-        keyword = keyword.replace("動畫", "")
-        keyword = keyword.replace("動漫", "")
+        for w in ["查詢", "搜尋", "動畫", "動漫"]:
+            keyword = keyword.replace(w, "")
         keyword = keyword.strip()
 
-        if keyword == "":
+        if not keyword:
             result = "請告訴我要查詢哪一部動畫"
         else:
             docs = db.collection("anime").stream()
-
             for doc in docs:
                 anime = doc.to_dict()
+                if keyword in anime.get("name", ""):
+                    result += f"【{anime.get('category','?')}】{anime['name']}\n"
+                    result += f"集數：{anime['episode']}\n"
+                    result += f"連結：{anime['link']}\n\n"
+            if not result:
+                result = f"查無符合「{keyword}」的動畫"
 
-                if keyword in anime["name"]:
-                    result += "動畫名稱：" + anime["name"] + "\n"
-                    result += "年份：" + anime["year"] + "\n"
-                    result += "集數：" + anime["episode"] + "\n"
-                    result += "連結：" + anime["link"] + "\n\n"
-
-            if result == "":
-                result = "查無符合「" + keyword + "」的動畫"
-
-    # 隨機推薦動畫
     elif action == "anime.random":
         docs = db.collection("anime").stream()
-
-        anime_list = []
-
-        for doc in docs:
-            anime_list.append(doc.to_dict())
-
-        if len(anime_list) == 0:
-            result = "目前沒有動畫資料，請先更新動畫資料"
+        anime_list = [doc.to_dict() for doc in docs]
+        if not anime_list:
+            result = "目前沒有動畫資料，請先更新"
         else:
             anime = random.choice(anime_list)
+            result = f"今日推薦【{anime.get('category','?')}】\n"
+            result += f"動畫名稱：{anime['name']}\n"
+            result += f"集數：{anime['episode']}\n"
+            result += f"連結：{anime['link']}"
 
-            result = "今日推薦動畫：\n"
-            result += "動畫名稱：" + anime["name"] + "\n"
-            result += "年份：" + anime["year"] + "\n"
-            result += "集數：" + anime["episode"] + "\n"
-            result += "連結：" + anime["link"]
+    elif action == "anime.hot":
+        docs = db.collection("anime").where("category", "==", "熱播").stream()
+        anime_list = [doc.to_dict() for doc in docs]
+        if not anime_list:
+            result = "目前沒有熱播資料，請先更新"
+        else:
+            result = "🔥 近期熱播：\n"
+            for i, anime in enumerate(anime_list[:5], 1):
+                result += f"{i}. {anime['name']}（{anime['episode']}集）\n"
+
+    elif action == "anime.new":
+        docs = db.collection("anime").where("category", "==", "新番").stream()
+        anime_list = [doc.to_dict() for doc in docs]
+        if not anime_list:
+            result = "目前沒有新番資料，請先更新"
+        else:
+            result = "🌟 本季新番：\n"
+            for i, anime in enumerate(anime_list[:5], 1):
+                result += f"{i}. {anime['name']}（{anime['episode']}）\n"
+
+    elif action == "anime.newArrive":
+        docs = db.collection("anime").where("category", "==", "新上架").stream()
+        anime_list = [doc.to_dict() for doc in docs]
+        if not anime_list:
+            result = "目前沒有新上架資料，請先更新"
+        else:
+            result = "🆕 新上架：\n"
+            for i, anime in enumerate(anime_list[:5], 1):
+                result += f"{i}. {anime['name']}（{anime['episode']}集）\n"
 
     else:
-        result = "我目前還不懂這個問題"
+        result = "我目前還不懂這個問題，你可以問我：\n查詢動畫、隨機推薦、熱播排行、本季新番、新上架"
 
-    return jsonify({
-        "fulfillmentText": result
-    })
+    return jsonify({"fulfillmentText": result})
+
 # ======================
 # 執行 Flask
 # ======================

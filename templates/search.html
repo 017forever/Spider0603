@@ -20,9 +20,11 @@
 
         {% if results %}
             {% for anime in results %}
-                <h3>{{ anime.name }}</h3>
-                <p>年份：{{ anime.year }}</p>
+                <h3>【{{ anime.category }}】{{ anime.name }}</h3>
                 <p>集數：{{ anime.episode }}</p>
+                {% if anime.date %}
+                    <p>上架日：{{ anime.date }}</p>
+                {% endif %}
                 <a href="{{ anime.link }}" target="_blank">觀看連結</a>
                 <hr>
             {% endfor %}
