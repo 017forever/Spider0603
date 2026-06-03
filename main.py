@@ -398,7 +398,7 @@ def handle_message(event):
         for w in ["查詢", "搜尋", "找", "動畫", "動漫"]:
             keyword = keyword.replace(w, "").strip()
         if not keyword:
-            reply = "請告訴我要查詢哪一部動畫，例如：查詢鬼滅"
+            reply = "請告訴我要查詢哪一部動畫，例如：查詢排球少年！！"
         else:
             docs = db.collection("anime").stream()
             reply = ""
