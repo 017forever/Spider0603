@@ -1,0 +1,5 @@
+flask
+requests
+beautifulsoup4
+firebase-admin
+google-cloud-firestore
