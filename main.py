@@ -238,36 +238,36 @@ def api_random():
 def webhook():
     req = request.get_json(force=True)
 
-    action = req["queryResult"]["action"]
+    action = req["queryResult"].get("action", "")
 
     result = ""
 
     # 查詢動畫
     if action == "anime.search":
-    keyword = req["queryResult"].get("queryText", "")
+        keyword = req["queryResult"].get("queryText", "")
 
-    keyword = keyword.replace("查詢", "")
-    keyword = keyword.replace("搜尋", "")
-    keyword = keyword.replace("動畫", "")
-    keyword = keyword.replace("動漫", "")
-    keyword = keyword.strip()
+        keyword = keyword.replace("查詢", "")
+        keyword = keyword.replace("搜尋", "")
+        keyword = keyword.replace("動畫", "")
+        keyword = keyword.replace("動漫", "")
+        keyword = keyword.strip()
 
-    if keyword == "":
-        result = "請告訴我要查詢哪一部動畫"
-    else:
-        docs = db.collection("anime").stream()
+        if keyword == "":
+            result = "請告訴我要查詢哪一部動畫"
+        else:
+            docs = db.collection("anime").stream()
 
-        for doc in docs:
-            anime = doc.to_dict()
+            for doc in docs:
+                anime = doc.to_dict()
 
-            if keyword in anime["name"]:
-                result += "動畫名稱：" + anime["name"] + "\n"
-                result += "年份：" + anime["year"] + "\n"
-                result += "集數：" + anime["episode"] + "\n"
-                result += "連結：" + anime["link"] + "\n\n"
+                if keyword in anime["name"]:
+                    result += "動畫名稱：" + anime["name"] + "\n"
+                    result += "年份：" + anime["year"] + "\n"
+                    result += "集數：" + anime["episode"] + "\n"
+                    result += "連結：" + anime["link"] + "\n\n"
 
-        if result == "":
-            result = "查無符合「" + keyword + "」的動畫"
+            if result == "":
+                result = "查無符合「" + keyword + "」的動畫"
 
     # 隨機推薦動畫
     elif action == "anime.random":
@@ -295,7 +295,6 @@ def webhook():
     return jsonify({
         "fulfillmentText": result
     })
-
 # ======================
 # 執行 Flask
 # ======================
