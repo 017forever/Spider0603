@@ -3,3 +3,4 @@ requests
 beautifulsoup4
 firebase-admin
 google-cloud-firestore
+line-bot-sdk
