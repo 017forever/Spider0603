@@ -244,8 +244,17 @@ def webhook():
 
     # 查詢動畫
     if action == "anime.search":
-        keyword = req["queryResult"]["parameters"].get("anime", "")
+    keyword = req["queryResult"].get("queryText", "")
 
+    keyword = keyword.replace("查詢", "")
+    keyword = keyword.replace("搜尋", "")
+    keyword = keyword.replace("動畫", "")
+    keyword = keyword.replace("動漫", "")
+    keyword = keyword.strip()
+
+    if keyword == "":
+        result = "請告訴我要查詢哪一部動畫"
+    else:
         docs = db.collection("anime").stream()
 
         for doc in docs:
